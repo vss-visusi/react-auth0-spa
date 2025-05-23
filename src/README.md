@@ -41,6 +41,9 @@ Before running the app, you need to configure an Auth0 application.
 4. Name it (e.g., `React SPA`) and select **Single Page Web Applications**.
 5. Click **Create**.
 
+### Create Post-login action in Auth0 tenant for email-verification check
+Refer to file 'email-verification-check-action' for source code for action
+
 ### 🔧 Update Application Settings
 
 Under the "Settings" tab of your new application, configure the following:
