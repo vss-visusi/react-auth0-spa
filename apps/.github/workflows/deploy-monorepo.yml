@@ -1,0 +1,81 @@
+# .github/workflows/deploy-monorepo.yml
+
+name: Vercel Monorepo Deployment
+
+# This workflow will trigger on pushes to the 'main' branch
+# You can customize the branch name if needed
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  # The 'find_changes' job identifies which projects have been modified
+  find_changes:
+    runs-on: ubuntu-latest
+    outputs:
+      # This output will contain a JSON array of the changed project directories
+      changed_projects: ${{ steps.check_changes.outputs.directories }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          # We need to fetch the full history to compare with the previous commit
+          fetch-depth: 0
+
+      - name: Find changed directories
+        id: check_changes
+        run: |
+          # Use git diff to find all changed directories since the last push to main.
+          # This assumes a monorepo structure like 'apps/project-name'
+          changed_dirs=$(git diff --name-only HEAD^ HEAD | grep -E "^apps/[^/]+/" | sed -E 's|^(apps/[^/]+/).*|\1|' | sort -u)
+          if [ -z "$changed_dirs" ]; then
+            echo "No changes detected in the 'apps/' directory. Skipping deployment."
+            echo "directories=[]" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Format the output as a JSON array for the next job to use
+          json_array="[]"
+          for dir in $changed_dirs; do
+            # Add each directory path to the JSON array
+            json_array=$(echo "$json_array" | jq --arg dir "$dir" '. += [$dir]')
+          done
+          
+          echo "Changed projects detected: $json_array"
+          echo "directories=$json_array" >> $GITHUB_OUTPUT
+        env:
+          # Ensure 'jq' is installed for JSON manipulation
+          DEBIAN_FRONTEND=noninteractive
+
+  # The 'deploy' job runs for each changed project identified in the previous job
+  deploy:
+    runs-on: ubuntu-latest
+    needs: find_changes
+    # Use a matrix strategy to run the deployment job for each changed project
+    strategy:
+      matrix:
+        project: ${{ fromJson(needs.find_changes.outputs.changed_projects) }}
+      fail-fast: false
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel Environment Variables
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        # Run this command from within the specific project directory
+        working-directory: ${{ matrix.project }}
+
+      - name: Build Project
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        working-directory: ${{ matrix.project }}
+
+      - name: Deploy to Vercel
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        working-directory: ${{ matrix.project }}
+
+      # Optional: Add a step to set Vercel aliases or custom domains
+      # for example, using vercel alias set ${{ steps.deploy.outputs.url }} my-project.vercel.app
